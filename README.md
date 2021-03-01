@@ -3,6 +3,8 @@
 2. Added errors description
 3. Some logic change for zero values
 4. Beatify ident and other :)
+5. More friendly output
+6. Add volume usage
 
 # zabbix-ibm-storwize
 Python script for monitoring IBM Storwize storages
