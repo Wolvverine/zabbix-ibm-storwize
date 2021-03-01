@@ -1,3 +1,9 @@
+# changes from original
+1. Python2 to Python3
+2. Added errors description
+3. Some logic change for zero values
+4. Beatify ident and other :)
+
 # zabbix-ibm-storwize
 Python script for monitoring IBM Storwize storages
 

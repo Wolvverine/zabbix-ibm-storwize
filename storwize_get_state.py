@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/bin/python3
 # -*- coding: utf-8 -*-
 
 import os
@@ -12,7 +12,6 @@ import logging
 import logging.handlers
 import csv
 import re
-
 
 # Create log-object
 LOG_FILENAME = "/tmp/storwize_state.log"
@@ -31,8 +30,6 @@ storwize_handler.setFormatter(storwize_formatter)
 # Add handler to log-object
 storwize_logger.addHandler(storwize_handler)
 
-
-
 def storwize_connect(storwize_user, storwize_password, storwize_ip, storwize_port):
     try:
         ssh_client = paramiko.SSHClient()
@@ -44,23 +41,17 @@ def storwize_connect(storwize_user, storwize_password, storwize_ip, storwize_por
         storwize_logger.info("Connection Close Error Occurs: {0}".format(oops))
         sys.exit("1000")
 
-
-
 def storwize_logout(ssh_client):
     try:
         ssh_client.close()
         storwize_logger.info("Connection Closed Successfully")
     except Exception as oops:
-        storwize_logger.info("Connection Close  Error Occurs: {0}".format(oops))
+        storwize_logger.info("Connection Close    Error Occurs: {0}".format(oops))
         sys.exit("1000")
 
-
-
 def convert_to_zabbix_json(data):
-        output = json.dumps({"data": data}, indent = None, separators = (',',': '))
-        return output
-
-
+    output = json.dumps({"data": data}, indent = None, separators = (',',': '))
+    return output
 
 def convert_text_to_numeric(value):
     if value == 'online':
@@ -94,14 +85,11 @@ def convert_text_to_numeric(value):
 
     return numericValue
 
-
-
 def advanced_info_of_resource(resource, needed_attributes, storwize_connection, *id_of_resource):
 
     """ needed_attributes - list of parameters, that we wont to get
-        id_of_resource - list of additional parameters, that uniquely determine resource.
-        Example: for PSU - first element of list is enclosure_id, secondary element of list is PSU_id"""
-
+            id_of_resource - list of additional parameters, that uniquely determine resource.
+            Example: for PSU - first element of list is enclosure_id, secondary element of list is PSU_id"""
 
     if resource == 'lsenclosure':
         stdin, stdout, stderr = storwize_connection.exec_command('svcinfo {0} {1}'.format(resource, id_of_resource[0]))
@@ -113,10 +101,10 @@ def advanced_info_of_resource(resource, needed_attributes, storwize_connection, 
         storwize_logout(storwize_connection)
         sys.exit("1100")
     else:
-        attributes_of_resource = stdout.read().decode('ascii') # Получили расширенные атрибуты в виде строки (variable contain advanced attributes in string)
+        attributes_of_resource = stdout.read() # Получили расширенные атрибуты в виде строки (variable contain advanced attributes in string)
         dict_of_attributes = {} # Здесь будут храниться расширенные атрибуты ресурса в формате ключ-значение (will contain advanced attributes in key-value)
         try:
-            for attribute in attributes_of_resource.split('\n'): # Разделил строку и получили список из расшренные атрибутов
+            for attribute in attributes_of_resource.decode().split('\n'): # Разделил строку и получили список из расшренные атрибутов
                 if len(attribute) > 0:
                     temp = attribute.split(' ')
                     dict_of_attributes[temp[0]] = temp[1]
@@ -132,21 +120,21 @@ def advanced_info_of_resource(resource, needed_attributes, storwize_connection, 
 
     return result
 
-
 def convert_capacity_to_bytes(capacity_in_string):
     """ Конвертирует значение, которое отдает СХД в виде строки, в байты
-        Convert value, from string to byte, that get from storage device
-    """
+    Convert value, from string to byte, that get from storage device
+        """
 
     convert_to_bytes = {'TB':1024**4, 'GB':1024**3, 'MB':1024**2, 'KB':1024}
     try:
-        list_of_capacity = re.search('([\d\.]+)([\D]+)',capacity_in_string) # Ищем по регулярному выражению и находим две группы совпадения
-        converted_capacity = float(list_of_capacity.group(1)) * convert_to_bytes[list_of_capacity.group(2)]
+        if capacity_in_string == '0':
+            converted_capacity = '0'
+        else:
+            list_of_capacity = re.search('([\d\.]+)([\D]+)',capacity_in_string) # Ищем по регулярному выражению и находим две группы совпадения
+            converted_capacity = float(str(list_of_capacity.group(1))) * convert_to_bytes[list_of_capacity.group(2)]
         return int(converted_capacity) # Конвертация в целые числа, потому что для float в заббиксе есть ограничение (convert to type ineger)
     except Exception as oops:
-        storwize_logger.error("Error occurs in converting capactity_in_string to capactiy_in_bytes".format(oops))
-
-
+        storwize_logger.error("Error occurs in converting capactity_in_string to capactiy_in_bytes. Error: {0}".format(oops))
 
 def send_data_to_zabbix(zabbix_data, storage_name):
     sender_command = "/usr/bin/zabbix_sender"
@@ -158,14 +146,9 @@ def send_data_to_zabbix(zabbix_data, storage_name):
         f.write("")
         f.write("\n".join(zabbix_data))
 
-    process = subprocess.Popen([sender_command, "-vv", "-c", config_path, "-s", storage_name, "-T", "-i", temp_file], stdout = subprocess.PIPE, stderr = subprocess.PIPE)
-    stdin, stderr = process.communicate
+    send_code = subprocess.call([sender_command, "-vv", "-c", config_path, "-s", storage_name, "-T", "-i", temp_file], stdout = subprocess.PIPE, stderr = subprocess.PIPE)
     os.remove(temp_file)
-    print(stdin, stderr)
-    return 0
-
-
-
+    return send_code
 
 def discovering_resources(storwize_user, storwize_password, storwize_ip, storwize_port, storage_name, list_resources):
     storwize_connection = storwize_connect(storwize_user, storwize_password, storwize_ip, storwize_port)
@@ -226,7 +209,7 @@ def discovering_resources(storwize_user, storwize_password, storwize_ip, storwiz
 
                 converted_resource = convert_to_zabbix_json(discovered_resource)
                 timestampnow = int(time.time())
-                xer.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, resource, timestampnow, converted_resource))
+                xer.append("%s %s %s %s" % (storage_name, resource, timestampnow, converted_resource))
     except Exception as oops:
         storwize_logger.error("Error occurs in discovering - {0}".format(oops))
         storwize_logout(storwize_connection)
@@ -234,7 +217,6 @@ def discovering_resources(storwize_user, storwize_password, storwize_ip, storwiz
         
     storwize_logout(storwize_connection)
     return send_data_to_zabbix(xer, storage_name)
-
 
 def get_disk_usage(storwize_user, storwize_password, storwize_ip, storwize_port, storage_name):
         storwize_connection = storwize_connect(storwize_user, storwize_password, storwize_ip, storwize_port)
@@ -301,8 +283,6 @@ def get_disk_usage(storwize_user, storwize_password, storwize_ip, storwize_port,
         storwize_logout(storwize_connection) # Завершаем ssh-сессию при успешном выполнении сбора метрик (Correctly end of session after get metrics)
         return send_data_to_zabbix(state_resources, storage_name)
 
-
-
 def get_status_resources(storwize_user, storwize_password, storwize_ip, storwize_port, storage_name, list_resources):
     storwize_connection = storwize_connect(storwize_user, storwize_password, storwize_ip, storwize_port)
 
@@ -332,23 +312,23 @@ def get_status_resources(storwize_user, storwize_password, storwize_ip, storwize
                         key_free = "free.{0}.[{1}]".format(resource, one_object["name"])
                         key_total = "total.{0}.[{1}]".format(resource, one_object["name"])
 
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_health, timestampnow, convert_text_to_numeric(one_object["status"])))
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_overallocation, timestampnow, one_object["overallocation"]))
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_used, timestampnow, convert_capacity_to_bytes(one_object["used_capacity"])))
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_virtual, timestampnow, convert_capacity_to_bytes(one_object["virtual_capacity"])))
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_real, timestampnow, convert_capacity_to_bytes(one_object["real_capacity"])))
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_free, timestampnow, convert_capacity_to_bytes(one_object["free_capacity"])))
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_total, timestampnow, convert_capacity_to_bytes(one_object["capacity"])))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_health, timestampnow, convert_text_to_numeric(one_object["status"])))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_overallocation, timestampnow, one_object["overallocation"]))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_used, timestampnow, convert_capacity_to_bytes(one_object["used_capacity"])))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_virtual, timestampnow, convert_capacity_to_bytes(one_object["virtual_capacity"])))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_real, timestampnow, convert_capacity_to_bytes(one_object["real_capacity"])))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_free, timestampnow, convert_capacity_to_bytes(one_object["free_capacity"])))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_total, timestampnow, convert_capacity_to_bytes(one_object["capacity"])))
 
                     elif ['lsenclosurecanister'].count(resource) == 1:
                         key_health = "health.{0}.[{1}.{2}]".format(resource, one_object["enclosure_id"], one_object["canister_id"])
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_health, timestampnow, convert_text_to_numeric(one_object["status"])))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_health, timestampnow, convert_text_to_numeric(one_object["status"])))
                     elif ['lsenclosurebattery'].count(resource) == 1:
                         key_health = "health.{0}.[{1}.{2}]".format(resource, one_object["enclosure_id"], one_object["battery_id"])
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_health, timestampnow, convert_text_to_numeric(one_object["status"])))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_health, timestampnow, convert_text_to_numeric(one_object["status"])))
                     elif ['lsdrive'].count(resource) == 1:
                         key_health = "health.{0}.[{1}.{2}]".format(resource, one_object["enclosure_id"], one_object["slot_id"])
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_health, timestampnow, convert_text_to_numeric(one_object["status"])))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_health, timestampnow, convert_text_to_numeric(one_object["status"])))
                     elif ['lsenclosurepsu'].count(resource) == 1:
                         needed_attributes = ['input_failed', 'output_failed', 'fan_failed']
                         enclosure_id = one_object["enclosure_id"]
@@ -359,10 +339,10 @@ def get_status_resources(storwize_user, storwize_password, storwize_ip, storwize
                         key_output_failed = "outFailed.{0}.[{1}.{2}]".format(resource, one_object["enclosure_id"], one_object["PSU_id"])
                         key_fan_failed = "fanFailed.{0}.[{1}.{2}]".format(resource, one_object["enclosure_id"], one_object["PSU_id"])
                         key_health = "health.{0}.[{1}.{2}]".format(resource, one_object["enclosure_id"], one_object["PSU_id"])
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_health, timestampnow, convert_text_to_numeric(one_object["status"])))
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_input_failed, timestampnow, convert_text_to_numeric(advanced_info["input_failed"])))
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_output_failed, timestampnow, convert_text_to_numeric(advanced_info["output_failed"])))
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_fan_failed, timestampnow, convert_text_to_numeric(advanced_info["fan_failed"])))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_health, timestampnow, convert_text_to_numeric(one_object["status"])))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_input_failed, timestampnow, convert_text_to_numeric(advanced_info["input_failed"])))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_output_failed, timestampnow, convert_text_to_numeric(advanced_info["output_failed"])))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_fan_failed, timestampnow, convert_text_to_numeric(advanced_info["fan_failed"])))
                     elif ['lsenclosure'].count(resource) == 1:
                         needed_attributes = ['fault_LED']
                         enclosure_id = one_object["id"]
@@ -370,20 +350,20 @@ def get_status_resources(storwize_user, storwize_password, storwize_ip, storwize
 
                         key_fault_led = "faultLED.{0}.[{1}.{2}]".format(resource, one_object["id"], one_object["serial_number"])
                         key_health = "health.{0}.[{1}.{2}]".format(resource, one_object["id"], one_object["serial_number"])
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_health, timestampnow, convert_text_to_numeric(one_object["status"])))
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_fault_led, timestampnow, convert_text_to_numeric(advanced_info["fault_LED"])))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_health, timestampnow, convert_text_to_numeric(one_object["status"])))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_fault_led, timestampnow, convert_text_to_numeric(advanced_info["fault_LED"])))
 
                         if one_object["type"] == "expansion":
                             is_there_expansion_enclosure += 1
 
                     elif ['lsportfc', 'lsportsas'].count(resource) == 1:
                         key_running = "running.{0}.[{1}.{2}]".format(resource, one_object["port_id"], one_object["node_name"])
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_running, timestampnow, convert_text_to_numeric(one_object["status"])))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_running, timestampnow, convert_text_to_numeric(one_object["status"])))
                     elif ['lsvdisk', 'lsmdisk'].count(resource) == 1:
                         key_health = "health.{0}.[{1}]".format(resource, one_object["name"])
-                        state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" % (storage_name, key_health, timestampnow, convert_text_to_numeric(one_object["status"])))
+                        state_resources.append("%s %s %s %s" % (storage_name, key_health, timestampnow, convert_text_to_numeric(one_object["status"])))
 
-                state_resources.append("\"%s\" \"%s\" \"%s\" \"%s\"" %(storage_name, "is_there_expansion_enclosure", timestampnow, is_there_expansion_enclosure))
+                state_resources.append("%s %s %s %s" %(storage_name, "is_there_expansion_enclosure", timestampnow, is_there_expansion_enclosure))
     except Exception as pizdec:
         storwize_logger.error("Error occurs in collecting status - {}".format(pizdec))
         storwize_logout(storwize_connection) # Если возникло исключение, нужно корректно заверешить ssh-сессию (If exception occur, than correctly end of ssh-session)
@@ -392,40 +372,30 @@ def get_status_resources(storwize_user, storwize_password, storwize_ip, storwize
     storwize_logout(storwize_connection) # Завершаем ssh-сессию при успешном выполнении сбора метрик (Correctly end of session after get metrics)
     return send_data_to_zabbix(state_resources, storage_name)
 
-
-
 def main():
+    storwize_parser = argparse.ArgumentParser()
+    storwize_parser.add_argument('--storwize_ip', action="store", help="Where to connect", required=True)
+    storwize_parser.add_argument('--storwize_port', action="store", required=True)
+    storwize_parser.add_argument('--storwize_user', action="store", required=True)
+    storwize_parser.add_argument('--storwize_password', action="store", required=True)
+    storwize_parser.add_argument('--storage_name', action="store", required=True)
 
-        storwize_parser = argparse.ArgumentParser()
-        storwize_parser.add_argument('--storwize_ip', action="store", help="Where to connect", required=True)
-        storwize_parser.add_argument('--storwize_port', action="store", required=True)
-        storwize_parser.add_argument('--storwize_user', action="store", required=True)
-        storwize_parser.add_argument('--storwize_password', action="store", required=True)
-        storwize_parser.add_argument('--storage_name', action="store", required=True)
+    group = storwize_parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--discovery', action ='store_true')
+    group.add_argument('--status', action='store_true')
+    arguments = storwize_parser.parse_args()
 
-        group = storwize_parser.add_mutually_exclusive_group(required=True)
-        group.add_argument('--discovery', action ='store_true')
-        group.add_argument('--status', action='store_true')
-    group.add_argument('--usage', action='store_true')
-        arguments = storwize_parser.parse_args()
+    list_resources = ['lsvdisk', 'lsmdisk', 'lsmdiskgrp', 'lsenclosure', 'lsenclosurebattery', 'lsenclosurepsu', 'lsenclosurecanister', 'lsdrive', 'lsportfc', 'lsportsas']
 
-
-
-        list_resources = ['lsvdisk', 'lsmdisk', 'lsmdiskgrp', 'lsenclosure', 'lsenclosurebattery', 'lsenclosurepsu', 'lsenclosurecanister', 'lsdrive', 'lsportfc', 'lsportsas']
-
-        if arguments.discovery:
+    if arguments.discovery:
         storwize_logger.info("********************************* Starting Discovering *********************************")
-                result_discovery = discovering_resources(arguments.storwize_user, arguments.storwize_password, arguments.storwize_ip, arguments.storwize_port, arguments.storage_name, list_resources)
-                print result_discovery
-    elif arguments.usage:
-        storwize_logger.info("********************************* Starting Get Usage  *********************************")
-                result_usage = get_disk_usage(arguments.storwize_user, arguments.storwize_password, arguments.storwize_ip, arguments.storwize_port, arguments.storage_name)
-                print result_usage
-        elif arguments.status:
-            storwize_logger.info("********************************* Starting Get Status *********************************")
-            result_status = get_status_resources(arguments.storwize_user, arguments.storwize_password, arguments.storwize_ip, arguments.storwize_port, arguments.storage_name, list_resources)
-            print(result_status)
-
+        result_discovery = discovering_resources(arguments.storwize_user, arguments.storwize_password, arguments.storwize_ip, arguments.storwize_port, arguments.storage_name, list_resources)
+        print(result_discovery)
+    elif arguments.status:
+        storwize_logger.info("********************************* Starting Get Status *********************************")
+        result_status = get_status_resources(arguments.storwize_user, arguments.storwize_password, arguments.storwize_ip, arguments.storwize_port, arguments.storage_name, list_resources)
+        print(result_status)
 
 if __name__ == "__main__":
-        main()
+    main()
+
