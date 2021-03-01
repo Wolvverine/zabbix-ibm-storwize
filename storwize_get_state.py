@@ -236,6 +236,72 @@ def discovering_resources(storwize_user, storwize_password, storwize_ip, storwiz
     return send_data_to_zabbix(xer, storage_name)
 
 
+def get_disk_usage(storwize_user, storwize_password, storwize_ip, storwize_port, storage_name):
+        storwize_connection = storwize_connect(storwize_user, storwize_password, storwize_ip, storwize_port)
+    
+    list_resources = []
+        try:
+               stdin, stdout, stderr = storwize_connection.exec_command('svcinfo lsvdisk -delim :')
+           if len(stderr.read()) > 0: # Если случились ошибки, запиши их в лог и выйди из скрипта (If errors occur, then write them to log-file and correctyly end of ssh-session)
+                           storwize_logger.error("Error Occurs in SSH Command - {0}".format(stderr.read()))
+                           storwize_logout(storwize_connection)
+                           sys.exit("1100")
+               else:
+                           resource_in_csv = csv.DictReader(stdout, delimiter = ':') # Create CSV
+                           timestampnow = int(time.time())
+                           storwize_logger.info("Starting collecting volume usage - list of volumes")
+
+            for one_object in resource_in_csv:
+                list_resources.append(one_object["name"])
+                storwize_logger.info("detected volume {0}".format(one_object["name"]))
+        except Exception as pizdec:
+                storwize_logger.error("Error occurs in collecting volume usage - list of volumes - {}".format(pizdec))
+                storwize_logout(storwize_connection) # Если возникло исключение, нужно корректно заверешить ssh-сессию (If exception occur, than correctly end of ssh-session)
+                sys.exit("1100")
+
+    storwize_logout(storwize_connection)
+    storwize_connection = storwize_connect(storwize_user, storwize_password, storwize_ip, storwize_port)
+
+    state_resources = []
+    try:
+        for resource in list_resources:
+            stdin, stdout, stderr = storwize_connection.exec_command('svcinfo lsvdisk -bytes -delim : {0}'.format(resource))
+            
+                        if len(stderr.read()) > 0: # Если случились ошибки, запиши их в лог и выйди из скрипта (If errors occur, then write them to log-file and correctyly end of ssh-session)
+                                storwize_logger.error('svcinfo lsvdisk -bytes -delim : {0}'.format(resource))
+                storwize_logger.error("Error Occurs in SSH Command - {0}".format(stderr.read()))
+                                storwize_logout(storwize_connection)
+                                sys.exit("1100")
+                        else:
+                                resource_in_csv = csv.reader(stdout, delimiter = ':') # Create CSV
+                                timestampnow = int(time.time())
+                                storwize_logger.info("Starting collecting volume usage - {0}".format(resource))
+                for one_object in resource_in_csv:
+                    if not ''.join(one_object).strip():
+                        continue
+                    storwize_logger.info(str(one_object))
+                    if str(one_object[0]) in 'used_capacity':
+                        storwize_logger.info(str(one_object[0])+" - "+str(one_object[1]))
+                        key_used = 'lsvdisk.usage.[{0}]'.format(resource)
+                        state_resources.append("%s %s %s %s" % (storage_name, key_used, timestampnow,(one_object[1])))
+                                           if str(one_object[0]) in 'real_capacity':
+                                                   storwize_logger.info(str(one_object[0])+" - "+str(one_object[1]))
+                                                   key_used = 'lsvdisk.real_capacity.[{0}]'.format(resource)
+                                                   state_resources.append("%s %s %s %s" % (storage_name, key_used, timestampnow,(one_object[1])))
+                                           if str(one_object[0]) in 'capacity':
+                                                   storwize_logger.info(str(one_object[0])+" - "+str(one_object[1]))
+                                                   key_used = 'lsvdisk.capacity.[{0}]'.format(resource)
+                                                   state_resources.append("%s %s %s %s" % (storage_name, key_used, timestampnow,(one_object[1])))
+                
+        except Exception as pizdec:
+                storwize_logger.error("Error occurs in collecting usage {1} - {0}".format(pizdec,resource))
+                storwize_logout(storwize_connection) # Если возникло исключение, нужно корректно заверешить ssh-сессию (If exception occur, than correctly end of ssh-session)
+                sys.exit("1100")
+
+        storwize_logout(storwize_connection) # Завершаем ssh-сессию при успешном выполнении сбора метрик (Correctly end of session after get metrics)
+        return send_data_to_zabbix(state_resources, storage_name)
+
+
 
 def get_status_resources(storwize_user, storwize_password, storwize_ip, storwize_port, storage_name, list_resources):
     storwize_connection = storwize_connect(storwize_user, storwize_password, storwize_ip, storwize_port)
@@ -340,6 +406,7 @@ def main():
         group = storwize_parser.add_mutually_exclusive_group(required=True)
         group.add_argument('--discovery', action ='store_true')
         group.add_argument('--status', action='store_true')
+    group.add_argument('--usage', action='store_true')
         arguments = storwize_parser.parse_args()
 
 
@@ -347,9 +414,13 @@ def main():
         list_resources = ['lsvdisk', 'lsmdisk', 'lsmdiskgrp', 'lsenclosure', 'lsenclosurebattery', 'lsenclosurepsu', 'lsenclosurecanister', 'lsdrive', 'lsportfc', 'lsportsas']
 
         if arguments.discovery:
-            storwize_logger.info("********************************* Starting Discovering *********************************")
-            result_discovery = discovering_resources(arguments.storwize_user, arguments.storwize_password, arguments.storwize_ip, arguments.storwize_port, arguments.storage_name, list_resources)
-            print(result_discovery)
+        storwize_logger.info("********************************* Starting Discovering *********************************")
+                result_discovery = discovering_resources(arguments.storwize_user, arguments.storwize_password, arguments.storwize_ip, arguments.storwize_port, arguments.storage_name, list_resources)
+                print result_discovery
+    elif arguments.usage:
+        storwize_logger.info("********************************* Starting Get Usage  *********************************")
+                result_usage = get_disk_usage(arguments.storwize_user, arguments.storwize_password, arguments.storwize_ip, arguments.storwize_port, arguments.storage_name)
+                print result_usage
         elif arguments.status:
             storwize_logger.info("********************************* Starting Get Status *********************************")
             result_status = get_status_resources(arguments.storwize_user, arguments.storwize_password, arguments.storwize_ip, arguments.storwize_port, arguments.storage_name, list_resources)
